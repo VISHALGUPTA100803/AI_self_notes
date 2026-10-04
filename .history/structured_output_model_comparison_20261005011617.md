@@ -1,9 +1,0 @@
-Provider	Package	Default method
-OpenAI (ChatOpenAI)	langchain-openai	"json_schema" (changed from function_calling in v0.3.0, per the docstring you shared earlier)
-Gemini (ChatGoogleGenerativeAI)	langchain-google-genai	"json_schema" (confirmed from the reference docs: "Default method uses json_schema for reliable structured output"; this became default as of the langchain-google-genai 4.0.0 overhaul, before that it defaulted to function_calling)
-Anthropic (ChatAnthropic)	langchain-anthropic	"function_calling" (confirmed directly from the reference signature: method: Literal['function_calling', 'json_schema'] = 'function_calling')
-The important nuance: there's no single shared default across LangChain
-
-This is worth being precise about, since you might assume "LangChain" has one universal default, it doesn't. with_structured_output is implemented separately by each provider's integration package, and each one chose its own default independently. OpenAI and Google both migrated their defaults to json_schema (OpenAI in 0.3.0, Google in their 4.0.0 SDK overhaul), each citing better reliability from native structured-output/controlled-generation support. Anthropic's integration, as of this reference snapshot, still defaults to function_calling, it hasn't made that same switch.
-
-Also worth noting: Anthropic's with_structured_output signature doesn't even list json_mode as a valid option at all (Literal['function_calling', 'json_schema'], only two choices), unlike OpenAI's three-way Literal["function_calling", "json_mode", "json_schema"]. So Anthropic simply doesn't expose a json_mode-equivalent path through this interface the same way OpenAI does.
