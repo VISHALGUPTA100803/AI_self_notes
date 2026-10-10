@@ -1,0 +1,55 @@
+A cross encoder outputs a relevance score, which is a single learned scalar produced by the model itself, not a geometric measure like cosine similarity.
+
+How it works
+
+The query and document are concatenated into one input, for example [CLS] query [SEP] document [SEP].
+The transformer runs full self attention across both, so every query token can attend to every document token. This is why it captures fine grained interactions.
+The final hidden state of the [CLS] token is passed through a small classification or regression head (usually a linear layer).
+That head outputs one number: the relevance score.
+
+What kind of score is it?
+
+It is a raw logit (any real number, can be negative or greater than 1) in most implementations, such as the MS MARCO cross encoders in sentence-transformers.
+You can optionally pass it through a sigmoid to get a value between 0 and 1, which you can read as the probability that the document is relevant to the query.
+It is trained with supervision, using labeled query and document pairs, with binary cross entropy (relevant or not) or a pairwise or listwise ranking loss.
+
+Key differences from bi encoder cosine similarity
+
+Aspect	Bi encoder	Cross encoder
+Score type	Cosine similarity between two vectors, range -1 to 1	Learned relevance logit or probability
+Meaning	Geometric closeness in embedding space	The model’s direct judgment of relevance
+Comparable across queries?	Fairly consistent	Not reliably, only good for ranking docs within the same query
+Precomputation	Doc vectors can be precomputed and indexed	Nothing can be precomputed, must run per query and doc pair
+Speed	Fast, good for retrieving from millions	Slow, good for reranking top 20 to 100
+Accuracy	Lower	Higher
+
+
+The key point is that a transformer is not inherently a text generator. It is a stack of layers that turns input tokens into vectors. Text generation is just one possible head placed on top. A cross encoder uses the same body with a different head.
+
+Two kinds of transformer models
+
+Decoder models (GPT style): the last layer’s output goes through an LM head, a big linear layer that maps each hidden vector to a score for every word in the vocabulary (50k+ outputs). This is what picks the next token.
+Encoder models (BERT style): the output is just a hidden vector for every input token. There is no vocabulary projection unless you add one. Cross encoders are built on these (BERT, RoBERTa, MiniLM, DeBERTa).
+
+Step by step inside a cross encoder
+
+Tokenize the pair together: [CLS] query tokens [SEP] document tokens [SEP]
+Embed each token: token embedding + position embedding + segment embedding (tells the model which tokens belong to the query and which to the document).
+Pass through N transformer layers (say 6 or 12). Each layer does self attention followed by a feed forward network. Because query and document tokens sit in the same sequence, every query token can look at every document token. This is where the model notices things like “this sentence actually answers the question” or “the document mentions the word but in a different sense.”
+Output: one hidden vector per token, each of size 768 for example. The [CLS] vector has been trained to act as a summary of the whole pair.
+Classification head: take only the [CLS] vector and pass it through a linear layer of shape 768 to 1. That gives one number, the logit.
+python
+cls_vec = encoder(input_ids).last_hidden_state[:, 0]   # shape (batch, 768)
+score = linear(cls_vec)                                # shape (batch, 1)
+
+Why a single number is meaningful
+
+The linear layer starts with random weights, so at first the score is meaningless. Training fixes that. You feed labeled pairs (query, relevant doc = 1, query, irrelevant doc = 0) and minimize a loss such as binary cross entropy on the score. Backpropagation updates both the head and the whole transformer, so the [CLS] vector learns to encode “how relevant is this document to this query,” and the linear layer learns to read that out as one number. The meaning of the score comes entirely from training, not from the architecture.
+
+Bi encoder comparison
+
+A bi encoder runs the same transformer twice, once for the query and once for the document, and then compares the two output vectors with cosine similarity. The two texts never see each other inside the model. A cross encoder lets them interact through attention at every layer, which is why it is more accurate but cannot precompute anything.
+
+LLM based rerankers (a variation)
+
+Newer rerankers use decoder LLMs. They prompt the model with something like “Query: ... Document: ... Is the document relevant? Answer yes or no” and read the logits of the “yes” and “no” tokens from the normal LM head. The relevance score is then the difference between those two logits. The idea is the same: reduce the model’s output to a relevance signal, just through a different route.
